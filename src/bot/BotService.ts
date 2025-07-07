@@ -41,8 +41,7 @@ export class BotService {
             try {
                 if (!msg.text) return;
 
-                // Игнорируем команды кроме /start (которую обрабатываем отдельно)
-                if (msg.text.startsWith('/') && msg.text !== '/start') return;
+                if (msg.text.startsWith('/')) return;
 
                 await this.feedbackHandler.handleMessage(msg);
             } catch (e) {
@@ -70,10 +69,10 @@ export class BotService {
             }
         };
 
-        // Получаем всех пользователей из базы
+
         const allUserIds = await this.db.getAllUserIds();
 
-        // Отправляем каждому пользователю сообщение об обновлении
+
         for (const userId of allUserIds) {
             try {
                 await this.bot.sendMessage(userId, startMessage, startKeyboard);
