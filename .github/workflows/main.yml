@@ -26,10 +26,8 @@ jobs:
           echo "🛑 Остановка и очистка старых контейнеров..."
           docker compose down || true
 
-      - name: 🚀 Собрать и запустить контейнеры
+      - name: 📦 Построить и запустить контейнеры
         run: |
           echo "📦 Сборка и запуск нового контейнера..."
+          cd ~/feedback_bot
           docker compose up -d --build
-
-      - name: ✅ Проверка запущенных контейнеров
-        run: docker ps
