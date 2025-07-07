@@ -3,6 +3,6 @@ version: '3.9'
 services:
   alarm-bot:
     build: .
-    container_name: alarm-bot
+    container_name: feedback-bot
     env_file: .env
     restart: always
