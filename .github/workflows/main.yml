@@ -1,0 +1,35 @@
+name: Self-hosted Deploy FeedbackBot
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: 🔄 Pull latest FeedbackBot code
+        run: |
+          echo "📁 Переход в папку с ботом..."
+          cd ~/feedback_bot
+
+          echo "🔄 Получение последнего кода из ветки main..."
+          git pull origin main
+
+      - name: 🛑 Остановить старые контейнеры (если есть)
+        run: |
+          echo "🧼 Удаление старого контейнера (если существует)..."
+          docker rm -f feedback-bot || true
+
+          echo "🛑 Остановка и очистка старых контейнеров..."
+          docker compose down || true
+
+      - name: 🚀 Собрать и запустить контейнеры
+        run: |
+          echo "📦 Сборка и запуск нового контейнера..."
+          docker compose up -d --build
+
+      - name: ✅ Проверка запущенных контейнеров
+        run: docker ps
