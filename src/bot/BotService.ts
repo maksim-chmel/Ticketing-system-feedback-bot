@@ -19,8 +19,28 @@ export class BotService {
         this.feedbackHandler = new FeedbackHandler(this.bot, this.db);
     }
 
+    async broadcastLoop() {
+        const messages = await this.db.getAllActiveBroadcastMessages(); // получаем активные
+
+        if (messages.length === 0) return;
+
+        const userIds = await this.db.getAllUserIds();
+
+        for (const message of messages) {
+            for (const userId of userIds) {
+                try {
+                    await this.bot.sendMessage(userId, `📢 ${message.Message}`);
+                } catch (err) {
+                    console.error(`Ошибка отправки пользователю ${userId}:`, err);
+                }
+            }
+
+            // После рассылки удаляем или деактивируем
+            await this.db.deleteBroadcastMessageById(message.Id);
+        }
+    }
     async init() {
-        // Обработчики команд и сообщений
+
         this.bot.onText(/\/start/, async (msg) => {
             try {
                 await this.feedbackHandler.handleStart(msg);
@@ -49,7 +69,7 @@ export class BotService {
             }
         });
 
-        // Читаем файл с обновлениями
+
         let updatesText = '';
         try {
             updatesText = await fs.readFile('./updates.txt', 'utf-8');
@@ -58,7 +78,7 @@ export class BotService {
             updatesText = 'Обновления отсутствуют.';
         }
 
-        // Формируем сообщение для пользователей
+
         const startMessage = `🤖 Бот был обновлен!\n\n📢 Список обновлений:\n${updatesText}\n\nПожалуйста, нажмите кнопку /start ниже, чтобы продолжить работу.`;
 
         const startKeyboard = {
@@ -80,5 +100,8 @@ export class BotService {
                 console.error(`Ошибка отправки обновления пользователю ${userId}:`, err);
             }
         }
+        setInterval(() => {
+            this.broadcastLoop().catch(console.error);
+        }, 60_000);
     }
 }

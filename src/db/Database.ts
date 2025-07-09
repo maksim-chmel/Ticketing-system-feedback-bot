@@ -1,6 +1,12 @@
 // src/db/Database.ts
 import { Pool } from 'pg';
 import { config } from 'dotenv';
+export interface BroadcastMessage {
+    Id: number;
+    Message: string;
+    Created: Date;
+    IsActive: boolean;
+}
 
 config();
 
@@ -106,5 +112,13 @@ export class Database {
             console.error('[DB] Ошибка getAllUserIds:', err);
             return [];
         }
+    }
+    async getAllActiveBroadcastMessages(): Promise<BroadcastMessage[]> {
+        const result = await this.pool.query(`SELECT * FROM "BroadcastMessages" WHERE "IsActive" = true`);
+        return result.rows as BroadcastMessage[];
+    }
+
+    async deleteBroadcastMessageById(id: number): Promise<void> {
+        await this.pool.query(`DELETE FROM "BroadcastMessages" WHERE "Id" = $1`, [id]);
     }
 }
