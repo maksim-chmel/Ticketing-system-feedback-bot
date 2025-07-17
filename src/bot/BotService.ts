@@ -4,6 +4,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { Database } from '../db/Database';
 import { FeedbackHandler } from './FeedbackHandler';
 
+
 const WAITING_CONTACT = 0;
 const FEEDBACK = 1;
 
@@ -34,8 +35,6 @@ export class BotService {
                     console.error(`Ошибка отправки пользователю ${userId}:`, err);
                 }
             }
-
-            // После рассылки удаляем или деактивируем
             await this.db.deleteBroadcastMessageById(message.Id);
         }
     }
