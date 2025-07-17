@@ -13,21 +13,32 @@ jobs:
       - name: 🔄 Pull latest FeedbackBot code
         run: |
           echo "📁 Переход в папку с ботом..."
-          cd ~/feedback_bot
+          cd ~/feedback_bot || exit 1
 
           echo "🔄 Получение последнего кода из ветки main..."
           git pull origin main
 
-      - name: 🛑 Остановить старые контейнеры (если есть)
+      - name: 📝 Создание .env файла из GitHub Secrets
         run: |
-          echo "🧼 Удаление старого контейнера (если существует)..."
+          echo "📄 Генерация .env файла..."
+          cd ~/feedback_bot || exit 1
+          cat <<EOF > .env
+          DB_CONNECTION_STRING=${{ secrets.DB_CONNECTION_STRING }}
+          OPERATOR_CHAT_ID=${{ secrets.OPERATOR_CHAT_ID }}
+          THREAD_ID=${{ secrets.THREAD_ID }}
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          EOF
+
+      - name: 🛑 Остановка и удаление старых контейнеров
+        run: |
+          echo "🧼 Удаление старого контейнера (если есть)..."
           docker rm -f feedback-bot || true
 
-          echo "🛑 Остановка и очистка старых контейнеров..."
+          echo "🛑 Остановка и удаление предыдущих контейнеров..."
           docker compose down || true
 
-      - name: 📦 Построить и запустить контейнеры
+      - name: 🚀 Сборка и запуск нового контейнера
         run: |
-          echo "📦 Сборка и запуск нового контейнера..."
-          cd ~/feedback_bot
+          echo "🔧 Сборка и запуск..."
+          cd ~/feedback_bot || exit 1
           docker compose up -d --build
