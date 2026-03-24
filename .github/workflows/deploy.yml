@@ -1,0 +1,49 @@
+name: FeedbackBot CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: 
+
+jobs:
+  
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm install
+     
+      - run: npm run build 
+
+ 
+  deploy:
+    needs: build-check
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        
+        run: |
+          cat <<'EOF' > .env
+          DB_CONNECTION_STRING=${{ secrets.DB_CONNECTION_STRING }}
+          OPERATOR_CHAT_ID=${{ secrets.OPERATOR_CHAT_ID }}
+          THREAD_ID=${{ secrets.THREAD_ID }}
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          EOF
+
+      - name: Deploy with Docker
+        run: |
+        
+          docker compose up -d --build --remove-orphans
+          
+      - name: Cleanup old images
+        
+        run: docker image prune -f
