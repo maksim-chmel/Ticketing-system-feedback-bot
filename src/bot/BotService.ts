@@ -1,9 +1,7 @@
-// src/bot/BotService.ts
 import fs from 'fs/promises';
 import TelegramBot from 'node-telegram-bot-api';
 import { Database } from '../db/Database';
 import { FeedbackHandler } from './FeedbackHandler';
-
 
 const WAITING_CONTACT = 0;
 const FEEDBACK = 1;
@@ -20,8 +18,9 @@ export class BotService {
         this.feedbackHandler = new FeedbackHandler(this.bot, this.db);
     }
 
+    
     async broadcastLoop() {
-        const messages = await this.db.getAllActiveBroadcastMessages(); // получаем активные
+        const messages = await this.db.getAllActiveBroadcastMessages(); 
 
         if (messages.length === 0) return;
 
@@ -32,19 +31,20 @@ export class BotService {
                 try {
                     await this.bot.sendMessage(userId, `📢 ${message.Message}`);
                 } catch (err) {
-                    console.error(`Ошибка отправки пользователю ${userId}:`, err);
+                    console.error(`Error sending message to user ${userId}:`, err);
                 }
             }
             await this.db.deleteBroadcastMessageById(message.Id);
         }
     }
+
     async init() {
 
         this.bot.onText(/\/start/, async (msg) => {
             try {
                 await this.feedbackHandler.handleStart(msg);
             } catch (e) {
-                console.error('Ошибка в handleStart:', e);
+                console.error('Error in handleStart:', e);
             }
         });
 
@@ -52,7 +52,7 @@ export class BotService {
             try {
                 await this.feedbackHandler.handleContact(msg);
             } catch (e) {
-                console.error('Ошибка в handleContact:', e);
+                console.error('Error in handleContact:', e);
             }
         });
 
@@ -64,21 +64,19 @@ export class BotService {
 
                 await this.feedbackHandler.handleMessage(msg);
             } catch (e) {
-                console.error('Ошибка в handleMessage:', e);
+                console.error('Error in handleMessage:', e);
             }
         });
-
 
         let updatesText = '';
         try {
             updatesText = await fs.readFile('./updates.txt', 'utf-8');
         } catch (err) {
-            console.error('Ошибка чтения файла updates.txt:', err);
-            updatesText = 'Обновления отсутствуют.';
+            console.error('Error reading updates.txt file:', err);
+            updatesText = 'No updates available.';
         }
 
-
-        const startMessage = `🤖 Бот был обновлен!\n\n📢 Список обновлений:\n${updatesText}\n\nПожалуйста, нажмите кнопку /start ниже, чтобы продолжить работу.`;
+        const startMessage = `🤖 The bot has been updated!\n\n📢 Update list:\n${updatesText}\n\nPlease press the /start button below to continue.`;
 
         const startKeyboard = {
             reply_markup: {
@@ -88,17 +86,17 @@ export class BotService {
             }
         };
 
-
         const allUserIds = await this.db.getAllUserIds();
-
 
         for (const userId of allUserIds) {
             try {
                 await this.bot.sendMessage(userId, startMessage, startKeyboard);
             } catch (err) {
-                console.error(`Ошибка отправки обновления пользователю ${userId}:`, err);
+                console.error(`Error sending update to user ${userId}:`, err);
             }
         }
+
+       
         setInterval(() => {
             this.broadcastLoop().catch(console.error);
         }, 60_000);

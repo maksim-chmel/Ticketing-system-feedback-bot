@@ -4,9 +4,30 @@ services:
   feedback-bot:
     build: .
     container_name: feedback-bot
+    restart: always
+   
     environment:
       - DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
       - OPERATOR_CHAT_ID=${OPERATOR_CHAT_ID}
       - THREAD_ID=${THREAD_ID}
       - BOT_TOKEN=${BOT_TOKEN}
-    restart: always
+    
+    
+    networks:
+      - feedback_shared_network
+
+    
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  
+  feedback_shared_network:
+    external: true

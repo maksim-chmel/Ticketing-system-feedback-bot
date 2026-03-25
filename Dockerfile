@@ -1,11 +1,11 @@
-# Используем Node.js 18 с Debian
+
 FROM node:18-slim
 
-# Установим зависимости для сборки canvas
 RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    build-essential \
     libcairo2-dev \
     libpango1.0-dev \
     libjpeg-dev \
@@ -14,17 +14,18 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаём рабочую директорию
+
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
 COPY package*.json ./
 
-# Устанавливаем зависимости
 RUN npm install
 
-# Копируем весь проект
 COPY . .
 
-# Запускаем приложение
-CMD ["npm", "start"]
+RUN npm install -g ts-node typescript
+
+
+RUN ls -la
+
+CMD ["npx", "ts-node", "src/index.ts"]
