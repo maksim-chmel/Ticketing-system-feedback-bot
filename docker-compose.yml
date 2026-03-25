@@ -7,7 +7,6 @@ services:
     restart: always
    
     environment:
-      - DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
       - OPERATOR_CHAT_ID=${OPERATOR_CHAT_ID}
       - THREAD_ID=${THREAD_ID}
       - BOT_TOKEN=${BOT_TOKEN}
