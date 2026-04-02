@@ -1,103 +1,80 @@
 import fs from 'fs/promises';
-import TelegramBot from 'node-telegram-bot-api';
-import { FeedbackHandler } from './FeedbackHandler';
+import { Telegraf, Markup } from 'telegraf';
 import axios from 'axios';
+import { FeedbackHandler } from './FeedbackHandler';
+import { log } from './logger';
 
 export class BotService {
-    private bot: TelegramBot;
+    private readonly bot: Telegraf;
     private feedbackHandler: FeedbackHandler;
     private readonly API_BASE = 'http://adminpanel-back:8080/api/BotFeedback';
 
     constructor() {
-        const token = process.env.BOT_TOKEN!;
-        this.bot = new TelegramBot(token, { polling: true });
-        this.feedbackHandler = new FeedbackHandler(this.bot);
+        this.bot = new Telegraf(process.env.BOT_TOKEN!);
+        this.feedbackHandler = new FeedbackHandler();
     }
 
     private async getAllUserIds(): Promise<number[]> {
         try {
-            const response = await axios.get(`${this.API_BASE}/all-users`);
-            return response.data;
-        } catch (error: any) {
-            console.error('Error fetching user IDs:', error.message);
+            const { data } = await axios.get(`${this.API_BASE}/all-users`);
+            return data;
+        } catch (e: any) {
+            log('Error', 'Failed to fetch user IDs: {Msg}', { Msg: e.message });
             return [];
         }
     }
 
     async broadcastLoop() {
-        try {
-            const response = await axios.get(`${this.API_BASE}/broadcast-messages`);
-            const messages = response.data;
+        const { data: messages } = await axios.get(`${this.API_BASE}/broadcast-messages`);
+        if (!messages?.length) return;
 
-            if (!messages || messages.length === 0) return;
-
-            const userIds = await this.getAllUserIds();
-
-            for (const message of messages) {
-                for (const userId of userIds) {
-                    try {
-                        await this.bot.sendMessage(userId, `📢 ${message.message}`);
-                    } catch (err) {
-                        console.error(`Failed to send broadcast to user ${userId}`);
-                    }
-                }
+        const userIds = await this.getAllUserIds();
+        for (const msg of messages) {
+            for (const id of userIds) {
+                try {
+                    await this.bot.telegram.sendMessage(id, `📢 ${msg.message}`);
+                } catch { /* log fail */ }
             }
-        } catch (error: any) {
-            console.error('Broadcast loop error:', error.message);
         }
     }
 
     async init() {
-        this.bot.onText(/\/start/, async (msg) => {
-            try {
-                await this.feedbackHandler.handleStart(msg);
-            } catch (e) {
-                console.error('Error in handleStart:', e);
-            }
+        
+        this.bot.use(async (ctx, next) => {
+            const start = Date.now();
+            await next();
+            log('Information', 'Update {Type} from {User} processed in {MS}ms', {
+                Type: ctx.updateType,
+                User: ctx.from?.username || ctx.from?.id,
+                MS: Date.now() - start
+            });
         });
 
-        this.bot.on('contact', async (msg) => {
-            try {
-                await this.feedbackHandler.handleContact(msg);
-            } catch (e) {
-                console.error('Error in handleContact:', e);
-            }
+        this.bot.start(ctx => this.feedbackHandler.handleStart(ctx));
+        this.bot.on('contact', ctx => this.feedbackHandler.handleContact(ctx));
+        this.bot.on('text', (ctx, next) => {
+            if (ctx.message.text.startsWith('/')) return next();
+            return this.feedbackHandler.handleMessage(ctx);
         });
 
-        this.bot.on('message', async (msg) => {
-            try {
-                if (!msg.text || msg.text.startsWith('/')) return;
-                await this.feedbackHandler.handleMessage(msg);
-            } catch (e) {
-                console.error('Error in handleMessage:', e);
-            }
-        });
+        
+        this.sendUpdateNotification().catch(e => log('Error', 'Update notify failed'));
 
-        try {
-            const updatesText = await fs.readFile('./updates.txt', 'utf-8').catch(() => 'No updates available.');
-            const startMessage = `🤖 The bot has been updated!\n\n📢 Update list:\n${updatesText}\n\nPlease press the /start button below to continue.`;
+        await this.bot.launch();
 
-            const allUserIds = await this.getAllUserIds();
+        setInterval(() => this.broadcastLoop(), 60000);
 
-            for (const userId of allUserIds) {
-                try {
-                    await this.bot.sendMessage(userId, startMessage, {
-                        reply_markup: {
-                            keyboard: [[{ text: '/start' }]],
-                            resize_keyboard: true,
-                            one_time_keyboard: true
-                        }
-                    });
-                } catch (err) {
-                    console.error(`Error sending update to user ${userId}:`, err);
-                }
-            }
-        } catch (err) {
-            console.error('Initial notification error:', err);
+        process.once('SIGINT', () => this.bot.stop('SIGINT'));
+        process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
+    }
+
+    private async sendUpdateNotification() {
+        const text = await fs.readFile('./updates.txt', 'utf-8').catch(() => 'New fixes!');
+        const ids = await this.getAllUserIds();
+        for (const id of ids) {
+            await this.bot.telegram.sendMessage(id, `🤖 Bot Updated!\n\n${text}`,
+                Markup.keyboard([['/start']]).resize().oneTime()
+            ).catch(() => {});
         }
-
-        setInterval(() => {
-            this.broadcastLoop().catch(console.error);
-        }, 60000);
     }
 }

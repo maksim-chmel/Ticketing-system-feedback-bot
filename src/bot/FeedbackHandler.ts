@@ -1,13 +1,8 @@
-import { Message, Contact, ReplyKeyboardMarkup } from 'node-telegram-bot-api';
-import TelegramBot from 'node-telegram-bot-api';
+import { Context, Markup } from 'telegraf';
 import axios from 'axios';
 
 const FEEDBACK_STATUSES: Record<number, string> = {
-    0: "🟢 Open",
-    1: "🟡 In Progress",
-    2: "🟠 Pending Response",
-    3: "🔵 Closed",
-    4: "🔴 Rejected"
+    0: "🟢 Open", 1: "🟡 In Progress", 2: "🟠 Pending Response", 3: "🔵 Closed", 4: "🔴 Rejected"
 };
 
 const WAITING_CONTACT = 0;
@@ -15,171 +10,135 @@ const FEEDBACK = 1;
 const WAITING_FEEDBACK_TEXT = 2;
 
 export class FeedbackHandler {
-    private bot: TelegramBot;
     private userStates: Map<number, number>;
     private readonly API_BASE = 'http://adminpanel-back:8080/api/BotFeedback';
 
-    constructor(bot: TelegramBot) {
-        this.bot = bot;
+    constructor() {
         this.userStates = new Map();
     }
 
-    private mainMenuKeyboard(): ReplyKeyboardMarkup {
-        return {
-            keyboard: [
-                [{ text: "📡 Service Status" }],
-                [{ text: "📋 My Feedbacks" }],
-                [{ text: "➕ Create New Feedback" }]
-            ],
-            resize_keyboard: true
-        };
+    private mainMenuKeyboard() {
+        return Markup.keyboard([
+            ['📡 Service Status'],
+            ['📋 My Feedbacks'],
+            ['➕ Create New Feedback']
+        ]).resize();
     }
 
-    private cancelFeedbackKeyboard(): ReplyKeyboardMarkup {
-        return {
-            keyboard: [[{ text: "❌ Cancel" }]],
-            resize_keyboard: true
-        };
+    private cancelFeedbackKeyboard() {
+        return Markup.keyboard([['❌ Cancel']]).resize();
     }
 
-    async handleStart(msg: Message): Promise<void> {
-        const userId = msg.from!.id;
+    async handleStart(ctx: Context): Promise<void> {
+        const userId = ctx.from!.id;
         try {
             const response = await axios.get(`${this.API_BASE}/exists/${userId}`);
             const userExists = response.data;
-
             this.userStates.set(userId, userExists ? FEEDBACK : WAITING_CONTACT);
 
             if (userExists) {
-                await this.bot.sendMessage(userId, "👋 Welcome back!", {
-                    reply_markup: this.mainMenuKeyboard()
-                });
+                await ctx.reply("👋 Welcome back!", this.mainMenuKeyboard());
             } else {
-                await this.bot.sendMessage(userId, "👋 Hello! Please share your phone number to register.", {
-                    reply_markup: {
-                        keyboard: [[{ text: "📞 Share Phone Number", request_contact: true }]],
-                        resize_keyboard: true,
-                        one_time_keyboard: true
-                    }
-                });
+                await ctx.reply("👋 Hello! Please share your phone number to register.",
+                    Markup.keyboard([[Markup.button.contactRequest("📞 Share Phone Number")]])
+                        .resize().oneTime()
+                );
             }
         } catch (error) {
-            await this.bot.sendMessage(userId, "⚠️ Connection error. Please try again later.");
+            await ctx.reply("⚠️ Connection error. Please try again later.");
         }
     }
 
-    async handleContact(msg: Message): Promise<void> {
-        const userId = msg.from!.id;
-        const contact: Contact | undefined = msg.contact;
+    async handleContact(ctx: Context): Promise<void> {
+        const userId = ctx.from!.id;
+        const message = ctx.message as any;
+        const contact = message?.contact;
 
         if (!contact) {
-            await this.bot.sendMessage(userId, "❗ Please use the button provided.");
+            await ctx.reply("❗ Please use the button provided.");
             return;
         }
 
         try {
             await axios.post(`${this.API_BASE}/register-new-User`, {
-                userId: userId,
+                userId,
                 phoneNumber: contact.phone_number,
-                firstName: msg.from!.first_name ?? '',
-                lastName: msg.from!.last_name ?? '',
-                username: msg.from!.username ?? ''
+                firstName: ctx.from!.first_name,
+                lastName: ctx.from!.last_name ?? '',
+                username: ctx.from!.username ?? ''
             });
-
             this.userStates.set(userId, FEEDBACK);
-            await this.bot.sendMessage(userId, "✅ Registration successful!", {
-                reply_markup: this.mainMenuKeyboard()
-            });
+            await ctx.reply("✅ Registration successful!", this.mainMenuKeyboard());
         } catch (error) {
-            await this.bot.sendMessage(userId, "❌ Registration failed.");
+            await ctx.reply("❌ Registration failed.");
         }
     }
 
-    async handleMessage(msg: Message): Promise<void> {
-        const userId = msg.from!.id;
-        const text = msg.text ?? '';
+    async handleMessage(ctx: Context): Promise<void> {
+        const userId = ctx.from!.id;
+        const message = ctx.message as any;
+        const text = message?.text ?? '';
 
-        if (!this.userStates.has(userId)) {
-            await this.handleStart(msg);
-            return;
-        }
-
+        if (!this.userStates.has(userId)) return this.handleStart(ctx);
         const state = this.userStates.get(userId);
 
         if (state === WAITING_CONTACT) {
-            await this.bot.sendMessage(userId, "❗ Please register first.");
-            return;
+            return void await ctx.reply("❗ Please register first.");
         }
 
         if (state === WAITING_FEEDBACK_TEXT) {
             if (text === "❌ Cancel") {
                 this.userStates.set(userId, FEEDBACK);
-                await this.bot.sendMessage(userId, "❌ Cancelled.", { reply_markup: this.mainMenuKeyboard() });
-                return;
+                return void await ctx.reply("❌ Cancelled.", this.mainMenuKeyboard());
             }
-
             try {
                 await axios.post(`${this.API_BASE}/new-feedback`, {
-                    userId: userId,
-                    username: msg.from?.username || 'unknown',
+                    userId,
+                    username: ctx.from?.username || 'unknown',
                     comment: text
                 });
-
-                await this.bot.sendMessage(userId, `✅ Feedback sent to operator!`, { reply_markup: this.mainMenuKeyboard() });
+                await ctx.reply(`✅ Feedback sent!`, this.mainMenuKeyboard());
                 this.userStates.set(userId, FEEDBACK);
-            } catch (error) {
-                await this.bot.sendMessage(userId, "❌ Error saving feedback.");
+            } catch {
+                await ctx.reply("❌ Error saving feedback.");
             }
             return;
         }
 
         switch (text) {
             case "➕ Create New Feedback":
-                await this.bot.sendMessage(userId, "📝 Please describe your issue:", { reply_markup: this.cancelFeedbackKeyboard() });
+                await ctx.reply("📝 Please describe your issue:", this.cancelFeedbackKeyboard());
                 this.userStates.set(userId, WAITING_FEEDBACK_TEXT);
-                return;
-
+                break;
             case "📋 My Feedbacks":
-                try {
-                    const response = await axios.get(`${this.API_BASE}/user-feedbacks/${userId}`);
-                    const feedbacks = response.data;
-
-                    if (!feedbacks || feedbacks.length === 0) {
-                        await this.bot.sendMessage(userId, "📭 You haven't sent any feedbacks yet.");
-                    } else {
-                        const messages = feedbacks.map((fb: any) => {
-                            // Проверка полей в разных регистрах (Date vs createdDate)
-                            const rawDate = fb.date || fb.Date || fb.createdDate || fb.CreatedDate;
-                            const dateStr = (rawDate && !isNaN(Date.parse(rawDate)))
-                                ? new Date(rawDate).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-                                : 'Date N/A';
-
-                            // Обращение к полям DTO (PascalCase)
-                            const status = FEEDBACK_STATUSES[fb.status] || FEEDBACK_STATUSES[fb.Status] || "❓ Unknown";
-                            const comment = fb.comment || fb.Comment || 'No content';
-                            const id = fb.id || fb.Id;
-
-                            return `📋 *Feedback #${id}*\n\n💬 ${comment}\nStatus: ${status}\n📅 ${dateStr}`;
-                        });
-                        await this.bot.sendMessage(userId, messages.join("\n\n---\n\n"), { parse_mode: 'Markdown' });
-                    }
-                } catch (error) {
-                    await this.bot.sendMessage(userId, "❌ Could not retrieve status.");
-                }
-                return;
-
+                await this.showUserFeedbacks(ctx, userId);
+                break;
             case "📡 Service Status":
                 try {
                     await axios.get(`${this.API_BASE}/exists/${userId}`);
-                    await this.bot.sendMessage(userId, "✅ *System Online*", { parse_mode: 'Markdown' });
+                    await ctx.replyWithMarkdown("✅ *System Online*");
                 } catch {
-                    await this.bot.sendMessage(userId, "⚠️ *API Offline*");
+                    await ctx.replyWithMarkdown("⚠️ *API Offline*");
                 }
-                return;
-
+                break;
             default:
-                await this.bot.sendMessage(userId, "❓ Please choose an option:", { reply_markup: this.mainMenuKeyboard() });
-                return;
+                await ctx.reply("❓ Please choose an option:", this.mainMenuKeyboard());
+        }
+    }
+
+    private async showUserFeedbacks(ctx: Context, userId: number) {
+        try {
+            const { data: feedbacks } = await axios.get(`${this.API_BASE}/user-feedbacks/${userId}`);
+            if (!feedbacks?.length) return await ctx.reply("📭 No feedbacks found.");
+
+            const list = feedbacks.map((fb: any) => {
+                const date = new Date(fb.date || fb.createdDate).toLocaleString('en-GB');
+                const status = FEEDBACK_STATUSES[fb.status] || "❓ Unknown";
+                return `📋 *Feedback #${fb.id}*\n💬 ${fb.comment}\nStatus: ${status}\n📅 ${date}`;
+            }).join("\n\n---\n\n");
+            await ctx.replyWithMarkdown(list);
+        } catch {
+            await ctx.reply("❌ Error retrieving feedbacks.");
         }
     }
 }
