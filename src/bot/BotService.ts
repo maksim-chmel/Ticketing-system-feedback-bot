@@ -22,15 +22,31 @@ export class BotService {
 
     async broadcastLoop() {
         try {
+            log('Information', 'Broadcast poll started');
+
             const messages = await this.api.getBroadcastMessages();
+            log('Information', 'Broadcast poll fetched messages', {
+                Count: messages.length
+            });
+
             if (!messages.length) {
+                log('Information', 'Broadcast poll finished with no messages');
                 return;
             }
 
             const userIds = await this.api.getAllUserIds();
+            log('Information', 'Broadcast poll fetched users', {
+                Count: userIds.length
+            });
+
             for (const msg of messages) {
                 await this.broadcastMessage(msg, userIds);
             }
+
+            log('Information', 'Broadcast poll finished', {
+                MessageCount: messages.length,
+                UserCount: userIds.length
+            });
         } catch (error) {
             const normalized = normalizeBackendError(error, 'broadcastLoop');
             log('Error', 'Broadcast loop failed', getErrorLogProps(normalized));
@@ -38,6 +54,8 @@ export class BotService {
     }
 
     async init() {
+        log('Information', 'Bot initialization started');
+
         this.bot.use(async (ctx, next) => {
             const start = Date.now();
             await next();
@@ -62,7 +80,14 @@ export class BotService {
             log('Error', 'Update notification failed', getErrorLogProps(normalized));
         });
 
-        await this.bot.launch();
+        log('Information', 'Broadcast scheduler started', {
+            IntervalMs: this.config.broadcastIntervalMs
+        });
+
+        this.broadcastLoop().catch(error => {
+            const normalized = normalizeBackendError(error, 'initialBroadcastLoop');
+            log('Error', 'Initial broadcast loop failed', getErrorLogProps(normalized));
+        });
 
         this.broadcastTimer = setInterval(() => {
             this.broadcastLoop().catch(error => {
@@ -70,6 +95,10 @@ export class BotService {
                 log('Error', 'Scheduled broadcast loop failed', getErrorLogProps(normalized));
             });
         }, this.config.broadcastIntervalMs);
+
+        log('Information', 'Launching Telegram bot');
+        await this.bot.launch();
+        log('Information', 'Telegram bot launch completed');
 
         process.once('SIGINT', () => this.shutdown('SIGINT'));
         process.once('SIGTERM', () => this.shutdown('SIGTERM'));
@@ -103,9 +132,17 @@ export class BotService {
     }
 
     private async broadcastMessage(message: BroadcastMessageDto, userIds: number[]) {
+        let deliveredCount = 0;
+
+        log('Information', 'Broadcast delivery started', {
+            UserCount: userIds.length,
+            Preview: message.message.slice(0, 80)
+        });
+
         for (const id of userIds) {
             try {
                 await this.bot.telegram.sendMessage(id, `📢 ${message.message}`);
+                deliveredCount += 1;
             } catch (error) {
                 const normalized = normalizeTelegramError(error, 'broadcastMessage.sendMessage');
                 if (!normalized.expected) {
@@ -116,6 +153,12 @@ export class BotService {
                 }
             }
         }
+
+        log('Information', 'Broadcast delivery finished', {
+            UserCount: userIds.length,
+            DeliveredCount: deliveredCount,
+            Preview: message.message.slice(0, 80)
+        });
     }
 
     private shutdown(signal: 'SIGINT' | 'SIGTERM') {
