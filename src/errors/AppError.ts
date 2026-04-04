@@ -11,7 +11,8 @@ export class AppError extends Error {
         public readonly code?: string,
         public readonly statusCode?: number,
         public readonly retryAfterSeconds?: number,
-        public readonly expected: boolean = false
+        public readonly expected: boolean = false,
+        public readonly responseBody?: string
     ) {
         super(details);
         this.name = 'AppError';
@@ -35,6 +36,11 @@ export function normalizeBackendError(error: unknown, operation: string): AppErr
         const statusCode = error.response?.status;
         const code = error.code;
         const details = error.message;
+        const responseBody = error.response?.data
+            ? typeof error.response.data === 'string'
+                ? error.response.data
+                : JSON.stringify(error.response.data)
+            : undefined;
 
         if (code === 'ECONNABORTED') {
             return new AppError(
@@ -43,7 +49,10 @@ export function normalizeBackendError(error: unknown, operation: string): AppErr
                 'The service is taking too long to respond. Please try again.',
                 details,
                 code,
-                statusCode
+                statusCode,
+                undefined,
+                false,
+                responseBody
             );
         }
 
@@ -53,7 +62,11 @@ export function normalizeBackendError(error: unknown, operation: string): AppErr
                 operation,
                 'Could not reach the backend API. Please try again later.',
                 details,
-                code
+                code,
+                undefined,
+                undefined,
+                false,
+                responseBody
             );
         }
 
@@ -64,7 +77,10 @@ export function normalizeBackendError(error: unknown, operation: string): AppErr
                 'The backend API is temporarily unavailable. Please try again later.',
                 details,
                 code,
-                statusCode
+                statusCode,
+                undefined,
+                false,
+                responseBody
             );
         }
 
@@ -72,10 +88,13 @@ export function normalizeBackendError(error: unknown, operation: string): AppErr
             return new AppError(
                 'backend',
                 operation,
-                'The backend API rejected the request.',
+                'The backend API rejected the request. Please check your data and try again.',
                 details,
                 code,
-                statusCode
+                statusCode,
+                undefined,
+                false,
+                responseBody
             );
         }
     }
@@ -156,6 +175,7 @@ export function getErrorLogProps(error: AppError): Record<string, string | numbe
         Code: error.code,
         StatusCode: error.statusCode,
         RetryAfterSeconds: error.retryAfterSeconds,
-        Expected: error.expected
+        Expected: error.expected,
+        ResponseBody: error.responseBody
     };
 }

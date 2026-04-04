@@ -99,6 +99,24 @@ export class FeedbackHandler {
             await this.safeReply(ctx, en.messages.registrationSuccess, Markup.removeKeyboard(), 'replyRegistrationSuccess');
             await this.renderHome(ctx, false);
         } catch (error) {
+            if (error instanceof AppError && error.operation === 'registerUser' && error.statusCode === 400) {
+                try {
+                    const userExists = await this.api.userExists(userId);
+                    if (userExists) {
+                        this.userStates.set(userId, UserState.Idle);
+                        await this.safeReply(ctx, en.messages.alreadyRegistered, Markup.removeKeyboard(), 'replyAlreadyRegistered');
+                        await this.renderHome(ctx, false);
+                        return;
+                    }
+                } catch (existsError) {
+                    const normalizedExistsError = normalizeBackendError(existsError, 'handleContact.userExistsAfter400');
+                    log('Warning', 'Failed to verify user existence after registration 400 for {UserId}', {
+                        UserId: userId,
+                        ...getErrorLogProps(normalizedExistsError)
+                    });
+                }
+            }
+
             await this.handleBackendFailure(ctx, error, 'handleContact', en.messages.registrationFailed);
         }
     }

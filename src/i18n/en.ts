@@ -27,6 +27,7 @@ export const en = {
         registrationOwnPhoneOnly: '❗ Please share your own phone number.',
         registrationUseButton: '❗ Please use the button below to share your contact.',
         registrationSuccess: '✅ Registration completed.',
+        alreadyRegistered: '✅ You are already registered.',
         registrationFailed: '❌ Registration failed. Please try again later.',
         home: (name: string, prefix?: string) => [
             prefix,

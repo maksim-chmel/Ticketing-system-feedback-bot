@@ -46,7 +46,13 @@ export class BotFeedbackApi {
 
     async registerUser(payload: RegisterUserPayload): Promise<void> {
         await this.execute('registerUser', async () => {
-            await this.http.post('/register-new-User', payload);
+            await this.http.post('/register-new-User', {
+                UserId: payload.userId,
+                Phone: payload.phoneNumber,
+                FirstName: payload.firstName,
+                LastName: payload.lastName,
+                Username: payload.username
+            });
         });
     }
 
