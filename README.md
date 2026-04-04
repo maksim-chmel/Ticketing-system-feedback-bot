@@ -1,112 +1,115 @@
-# Ticketing-system-feedback-bot
+# feedback_bot
 
-Telegram bot through which end users register and submit support tickets. Part of a four-component platform — see [System Overview](#system-overview) below.
+Telegram bot for end users of the ticketing platform. The bot registers users by phone number, sends feedback to a backend API, shows the latest feedback statuses, and delivers broadcast messages.
 
----
+## Current Architecture
 
-## System Overview
+This repository is a Telegram client over HTTP API. It does not connect to PostgreSQL directly.
 
-This project is one of four components that form a complete ticketing platform:
-
-| Repository | Technology | Role |
-|---|---|---|
-| [ticketing-system-server](https://github.com/maksim-chmel/Ticketing-system-server) | ASP.NET Core 8 | REST API, business logic, database |
-| [ticketing-system-ui](https://github.com/maksim-chmel/Ticketing-system-ui) | React 19 + TypeScript | Admin panel for coordinators |
-| **feedback_bot** ← you are here | Node.js + TypeScript | Telegram bot for end users |
-| [alarm_bot](https://github.com/maksim-chmel/Ticketing-system-alarm-bot) | Node.js + TypeScript | Telegram bot that notifies operators of new tickets |
-
-```
-User (Telegram)
-     │ creates ticket via feedback_bot (this repo)
-     ▼
-PostgreSQL ◄──────────────────────────────────────────────────
-     │                                                        │
-     ├── alarm_bot polls every 15s → notifies operator        │
-     │                                                        │
-     └── ticketing-system-server REST API ─────────────────── ┘
-              │
-              ▼
-     ticketing-system-ui (admin panel)
+```text
+Telegram user
+   |
+   v
+feedback_bot (this repo)
+   |
+   v
+BotFeedback HTTP API
+   |
+   v
+backend + database
 ```
 
----
+## What The Bot Does
 
-## Features
+- registers a user from a Telegram contact;
+- shows a callback-driven inline UI inside the chat;
+- creates a new feedback entry through backend API;
+- shows the last 10 feedbacks with statuses;
+- checks backend API availability;
+- sends startup update notifications;
+- sends broadcast messages to all known users.
 
-- **Registration** — user sends phone number via Telegram contact button; stored in PostgreSQL
-- **Create ticket** — user types a message which is saved as a new feedback record
-- **Check ticket status** — shows last 10 tickets with current status
-- **Service health check** — verifies database connectivity on demand
-- **Broadcast delivery** — on startup, polls `BroadcastMessages` table every 60 seconds and sends queued messages to all registered users
+## Stack
 
----
-
-## Tech Stack
-
-| | |
-|---|---|
-| Runtime | Node.js + TypeScript |
-| Telegram | node-telegram-bot-api |
-| Database | PostgreSQL (via `pg`) |
-| Containerization | Docker / Docker Compose |
-
----
+- Node.js 18
+- TypeScript
+- Telegraf
+- Axios
+- Docker / Docker Compose
 
 ## Project Structure
 
-```
+```text
 src/
-├── index.ts          # Entry point, bot setup, broadcast loop
-├── bot/
-│   ├── BotService.ts     # Bot initialization, event routing, broadcast loop
-│   └── FeedbackHandler.ts # State machine: registration, ticket creation, menu
-└── db/
-    └── Database.ts       # PostgreSQL queries
+  api/
+    BotFeedbackApi.ts
+  bot/
+    BotService.ts
+    FeedbackHandler.ts
+    logger.ts
+  errors/
+    AppError.ts
+  i18n/
+    en.ts
+  config.ts
+  index.ts
+
+tests/
+  feedback-handler.test.js
 ```
 
----
+## Environment Variables
 
-## User Flow
+See [.env.example](./.env.example).
 
-```
-/start
-  ├── New user → request phone number → register → main menu
-  └── Returning user → main menu
+Required:
 
-Main menu:
-  ├── Create ticket → type message → saved to DB
-  ├── Ticket status → last 10 tickets with status
-  └── Service health → DB ping
-```
+- `BOT_TOKEN`
 
----
+Optional:
 
-## Getting Started
+- `API_BASE_URL` default: `http://adminpanel-back:8080/api/BotFeedback`
+- `SEQ_URL` default: disabled
+- `UPDATES_FILE_PATH` default: `./updates.txt`
+- `BROADCAST_INTERVAL_MS` default: `60000`
 
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL with the shared schema (see [ticketing-system-server](https://github.com/maksim-chmel/Ticketing-system-server))
-- Telegram bot token from [@BotFather](https://t.me/BotFather)
-
-### Environment Variables
-
-Create a `.env` file:
-
-```env
-BOT_TOKEN=your_telegram_bot_token
-DB_CONNECTION_STRING=postgresql://postgres:yourpassword@localhost:5432/feedbackdb
-```
-
-### Run locally
+## Local Run
 
 ```bash
 npm install
+npm run build
 npm start
 ```
 
-### Run with Docker Compose
+For development:
 
 ```bash
-docker compose up --build
+npm run dev
 ```
+
+## Tests
+
+```bash
+npm test
+```
+
+The test suite currently covers the main `FeedbackHandler` interaction flow.
+
+## Docker
+
+Build and start:
+
+```bash
+docker compose up -d --build feedback-bot
+```
+
+The image uses a multi-stage Docker build:
+
+- build stage installs dev dependencies and compiles TypeScript;
+- runtime stage contains only production dependencies and compiled output.
+
+## Notes
+
+- The bot UI texts are centralized in [src/i18n/en.ts](./src/i18n/en.ts).
+- Backend API and Telegram API errors are normalized in [src/errors/AppError.ts](./src/errors/AppError.ts).
+- Generated files such as `dist/` and local `node_modules/` should not be committed.

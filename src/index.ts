@@ -1,12 +1,17 @@
 import dotenv from 'dotenv';
 import { BotService } from './bot/BotService';
 import { log } from "./bot/logger";
+import { loadConfig } from './config';
+import { BotFeedbackApi } from './api/BotFeedbackApi';
+import { AppError, getErrorLogProps } from './errors/AppError';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 async function main() {
     try {
-        const botService = new BotService();
+        const config = loadConfig();
+        const api = new BotFeedbackApi(config.apiBaseUrl);
+        const botService = new BotService(config, api);
 
        
         await botService.init();
@@ -16,12 +21,15 @@ async function main() {
             Status: 'Running'
         });
 
-    } catch (error: any) {
-       
-        log('Fatal', 'Startup failed: {Error}', {
-            Error: error.message,
-            Stack: error.stack
-        });
+    } catch (error: unknown) {
+        const details = error instanceof AppError
+            ? getErrorLogProps(error)
+            : {
+                Error: error instanceof Error ? error.message : String(error),
+                Stack: error instanceof Error ? error.stack : undefined
+            };
+
+        log('Fatal', 'Startup failed', details);
 
         
         setTimeout(() => process.exit(1), 1000);

@@ -1,144 +1,416 @@
 import { Context, Markup } from 'telegraf';
-import axios from 'axios';
+import { BotFeedbackApi, FeedbackDto } from '../api/BotFeedbackApi';
+import { AppError, getErrorLogProps, normalizeBackendError, normalizeTelegramError } from '../errors/AppError';
+import { en } from '../i18n/en';
+import { log } from './logger';
 
-const FEEDBACK_STATUSES: Record<number, string> = {
-    0: "🟢 Open", 1: "🟡 In Progress", 2: "🟠 Pending Response", 3: "🔵 Closed", 4: "🔴 Rejected"
+enum UserState {
+    WaitingContact = 0,
+    Idle = 1,
+    WaitingFeedbackText = 2
+}
+
+enum CallbackAction {
+    Home = 'home',
+    CreateFeedback = 'create_feedback',
+    MyFeedbacks = 'my_feedbacks',
+    RefreshFeedbacks = 'refresh_feedbacks',
+    ServiceStatus = 'service_status',
+    RefreshServiceStatus = 'refresh_service_status',
+    Help = 'help',
+    CancelFeedback = 'cancel_feedback'
+}
+
+type BotContext = Context & {
+    message?: {
+        text?: string;
+        contact?: {
+            phone_number: string;
+            user_id?: number;
+        };
+    };
+    callbackQuery?: {
+        data?: string;
+        message?: unknown;
+    };
 };
 
-const WAITING_CONTACT = 0;
-const FEEDBACK = 1;
-const WAITING_FEEDBACK_TEXT = 2;
-
 export class FeedbackHandler {
-    private userStates: Map<number, number>;
-    private readonly API_BASE = 'http://adminpanel-back:8080/api/BotFeedback';
+    private readonly userStates: Map<number, UserState>;
 
-    constructor() {
+    constructor(private readonly api: BotFeedbackApi) {
         this.userStates = new Map();
     }
 
-    private mainMenuKeyboard() {
-        return Markup.keyboard([
-            ['📡 Service Status'],
-            ['📋 My Feedbacks'],
-            ['➕ Create New Feedback']
-        ]).resize();
-    }
-
-    private cancelFeedbackKeyboard() {
-        return Markup.keyboard([['❌ Cancel']]).resize();
-    }
-
-    async handleStart(ctx: Context): Promise<void> {
+    async handleStart(ctx: BotContext): Promise<void> {
         const userId = ctx.from!.id;
+
         try {
-            const response = await axios.get(`${this.API_BASE}/exists/${userId}`);
-            const userExists = response.data;
-            this.userStates.set(userId, userExists ? FEEDBACK : WAITING_CONTACT);
+            const userExists = await this.api.userExists(userId);
+            this.userStates.set(userId, userExists ? UserState.Idle : UserState.WaitingContact);
 
             if (userExists) {
-                await ctx.reply("👋 Welcome back!", this.mainMenuKeyboard());
+                await this.renderHome(ctx, true);
             } else {
-                await ctx.reply("👋 Hello! Please share your phone number to register.",
-                    Markup.keyboard([[Markup.button.contactRequest("📞 Share Phone Number")]])
-                        .resize().oneTime()
-                );
+                await this.renderRegistration(ctx);
             }
         } catch (error) {
-            await ctx.reply("⚠️ Connection error. Please try again later.");
+            await this.handleBackendFailure(ctx, error, 'handleStart', en.messages.connectionError);
         }
     }
 
-    async handleContact(ctx: Context): Promise<void> {
+    async handleHelp(ctx: BotContext): Promise<void> {
         const userId = ctx.from!.id;
-        const message = ctx.message as any;
-        const contact = message?.contact;
+        const state = this.userStates.get(userId);
+
+        if (state === UserState.WaitingContact) {
+            await this.renderRegistration(ctx);
+            return;
+        }
+
+        this.userStates.set(userId, UserState.Idle);
+        await this.renderHelp(ctx, false);
+    }
+
+    async handleContact(ctx: BotContext): Promise<void> {
+        const userId = ctx.from!.id;
+        const contact = ctx.message?.contact;
 
         if (!contact) {
-            await ctx.reply("❗ Please use the button provided.");
+            await ctx.reply(en.messages.registrationUseButton);
+            return;
+        }
+
+        if (contact.user_id && contact.user_id !== userId) {
+            await ctx.reply(en.messages.registrationOwnPhoneOnly);
             return;
         }
 
         try {
-            await axios.post(`${this.API_BASE}/register-new-User`, {
+            await this.api.registerUser({
                 userId,
                 phoneNumber: contact.phone_number,
                 firstName: ctx.from!.first_name,
                 lastName: ctx.from!.last_name ?? '',
                 username: ctx.from!.username ?? ''
             });
-            this.userStates.set(userId, FEEDBACK);
-            await ctx.reply("✅ Registration successful!", this.mainMenuKeyboard());
+
+            this.userStates.set(userId, UserState.Idle);
+            await this.safeReply(ctx, en.messages.registrationSuccess, Markup.removeKeyboard(), 'replyRegistrationSuccess');
+            await this.renderHome(ctx, false);
         } catch (error) {
-            await ctx.reply("❌ Registration failed.");
+            await this.handleBackendFailure(ctx, error, 'handleContact', en.messages.registrationFailed);
         }
     }
 
-    async handleMessage(ctx: Context): Promise<void> {
+    async handleMessage(ctx: BotContext): Promise<void> {
         const userId = ctx.from!.id;
-        const message = ctx.message as any;
-        const text = message?.text ?? '';
+        const text = ctx.message?.text?.trim() ?? '';
 
-        if (!this.userStates.has(userId)) return this.handleStart(ctx);
-        const state = this.userStates.get(userId);
-
-        if (state === WAITING_CONTACT) {
-            return void await ctx.reply("❗ Please register first.");
+        if (!this.userStates.has(userId)) {
+            await this.handleStart(ctx);
+            return;
         }
 
-        if (state === WAITING_FEEDBACK_TEXT) {
-            if (text === "❌ Cancel") {
-                this.userStates.set(userId, FEEDBACK);
-                return void await ctx.reply("❌ Cancelled.", this.mainMenuKeyboard());
+        const state = this.userStates.get(userId);
+
+        if (state === UserState.WaitingContact) {
+            await this.renderRegistration(ctx);
+            return;
+        }
+
+        if (state === UserState.WaitingFeedbackText) {
+            if (!text || text === en.buttons.cancel) {
+                this.userStates.set(userId, UserState.Idle);
+                await this.renderHome(ctx, false, en.messages.feedbackCancelled);
+                return;
             }
+
             try {
-                await axios.post(`${this.API_BASE}/new-feedback`, {
+                await this.api.createFeedback({
                     userId,
                     username: ctx.from?.username || 'unknown',
                     comment: text
                 });
-                await ctx.reply(`✅ Feedback sent!`, this.mainMenuKeyboard());
-                this.userStates.set(userId, FEEDBACK);
-            } catch {
-                await ctx.reply("❌ Error saving feedback.");
+
+                this.userStates.set(userId, UserState.Idle);
+                await this.renderHome(ctx, false, en.messages.feedbackSent);
+            } catch (error) {
+                await this.handleBackendFailure(ctx, error, 'handleMessageCreateFeedback', en.messages.feedbackSaveFailed);
             }
+
             return;
         }
 
-        switch (text) {
-            case "➕ Create New Feedback":
-                await ctx.reply("📝 Please describe your issue:", this.cancelFeedbackKeyboard());
-                this.userStates.set(userId, WAITING_FEEDBACK_TEXT);
+        await this.renderHome(ctx, false, en.messages.unknownInput);
+    }
+
+    async handleAction(ctx: BotContext): Promise<void> {
+        const userId = ctx.from!.id;
+        const action = ctx.callbackQuery?.data;
+
+        await this.answerCallback(ctx);
+
+        if (!this.userStates.has(userId)) {
+            await this.handleStart(ctx);
+            return;
+        }
+
+        if (this.userStates.get(userId) === UserState.WaitingContact) {
+            await this.renderRegistration(ctx);
+            return;
+        }
+
+        switch (action) {
+            case CallbackAction.Home:
+                this.userStates.set(userId, UserState.Idle);
+                await this.renderHome(ctx, true);
                 break;
-            case "📋 My Feedbacks":
-                await this.showUserFeedbacks(ctx, userId);
+            case CallbackAction.CreateFeedback:
+                await this.openFeedbackComposer(ctx);
                 break;
-            case "📡 Service Status":
-                try {
-                    await axios.get(`${this.API_BASE}/exists/${userId}`);
-                    await ctx.replyWithMarkdown("✅ *System Online*");
-                } catch {
-                    await ctx.replyWithMarkdown("⚠️ *API Offline*");
-                }
+            case CallbackAction.MyFeedbacks:
+            case CallbackAction.RefreshFeedbacks:
+                await this.renderFeedbacks(ctx, true);
+                break;
+            case CallbackAction.ServiceStatus:
+            case CallbackAction.RefreshServiceStatus:
+                await this.renderServiceStatus(ctx, true);
+                break;
+            case CallbackAction.Help:
+                this.userStates.set(userId, UserState.Idle);
+                await this.renderHelp(ctx, true);
+                break;
+            case CallbackAction.CancelFeedback:
+                this.userStates.set(userId, UserState.Idle);
+                await this.renderHome(ctx, true, en.messages.feedbackCancelled);
                 break;
             default:
-                await ctx.reply("❓ Please choose an option:", this.mainMenuKeyboard());
+                await this.renderHome(ctx, true);
+                break;
         }
     }
 
-    private async showUserFeedbacks(ctx: Context, userId: number) {
-        try {
-            const { data: feedbacks } = await axios.get(`${this.API_BASE}/user-feedbacks/${userId}`);
-            if (!feedbacks?.length) return await ctx.reply("📭 No feedbacks found.");
+    private async renderRegistration(ctx: BotContext) {
+        this.userStates.set(ctx.from!.id, UserState.WaitingContact);
 
-            const list = feedbacks.map((fb: any) => {
-                const date = new Date(fb.date || fb.createdDate).toLocaleString('en-GB');
-                const status = FEEDBACK_STATUSES[fb.status] || "❓ Unknown";
-                return `📋 *Feedback #${fb.id}*\n💬 ${fb.comment}\nStatus: ${status}\n📅 ${date}`;
-            }).join("\n\n---\n\n");
-            await ctx.replyWithMarkdown(list);
-        } catch {
-            await ctx.reply("❌ Error retrieving feedbacks.");
+        await this.safeReply(
+            ctx,
+            en.messages.registration(ctx.from?.first_name ?? 'there'),
+            Markup.keyboard([[Markup.button.contactRequest(en.buttons.sharePhone)]])
+                .resize()
+                .oneTime(),
+            'renderRegistration'
+        );
+    }
+
+    private async renderHome(ctx: BotContext, preferEdit: boolean, prefix?: string) {
+        this.userStates.set(ctx.from!.id, UserState.Idle);
+        await this.sendOrEdit(
+            ctx,
+            en.messages.home(ctx.from?.first_name ?? 'there', prefix),
+            this.mainMenuKeyboard(),
+            preferEdit,
+            'renderHome'
+        );
+    }
+
+    private async renderHelp(ctx: BotContext, preferEdit: boolean) {
+        await this.sendOrEdit(
+            ctx,
+            en.messages.help,
+            Markup.inlineKeyboard([
+                [Markup.button.callback(en.buttons.backToHome, CallbackAction.Home)]
+            ]),
+            preferEdit,
+            'renderHelp'
+        );
+    }
+
+    private async openFeedbackComposer(ctx: BotContext) {
+        this.userStates.set(ctx.from!.id, UserState.WaitingFeedbackText);
+
+        await this.sendOrEdit(
+            ctx,
+            en.messages.feedbackComposer,
+            Markup.inlineKeyboard([
+                [Markup.button.callback(en.buttons.cancel, CallbackAction.CancelFeedback)]
+            ]),
+            true,
+            'openFeedbackComposer'
+        );
+    }
+
+    private async renderServiceStatus(ctx: BotContext, preferEdit: boolean) {
+        let message = en.messages.serviceOnline;
+
+        try {
+            await this.api.userExists(ctx.from!.id);
+        } catch (error) {
+            const normalized = normalizeBackendError(error, 'renderServiceStatus');
+            log('Warning', 'Service status check failed for {UserId}', {
+                UserId: ctx.from!.id,
+                ...getErrorLogProps(normalized)
+            });
+            message = en.messages.serviceOffline;
+        }
+
+        await this.sendOrEdit(
+            ctx,
+            message,
+            Markup.inlineKeyboard([
+                [
+                    Markup.button.callback(en.buttons.refresh, CallbackAction.RefreshServiceStatus),
+                    Markup.button.callback(en.buttons.back, CallbackAction.Home)
+                ]
+            ]),
+            preferEdit,
+            'renderServiceStatus'
+        );
+    }
+
+    private async renderFeedbacks(ctx: BotContext, preferEdit: boolean) {
+        try {
+            const feedbacks = await this.api.getUserFeedbacks(ctx.from!.id);
+            const message = !feedbacks.length
+                ? en.messages.noFeedbacks
+                : [
+                    en.messages.feedbacksTitle,
+                    '',
+                    ...feedbacks.slice(0, 10).map((fb) => this.formatFeedback(fb))
+                ].join('\n\n');
+
+            await this.sendOrEdit(
+                ctx,
+                message,
+                Markup.inlineKeyboard([
+                    [
+                        Markup.button.callback(en.buttons.refresh, CallbackAction.RefreshFeedbacks),
+                        Markup.button.callback(en.buttons.back, CallbackAction.Home)
+                    ]
+                ]),
+                preferEdit,
+                'renderFeedbacks'
+            );
+        } catch (error) {
+            const normalized = normalizeBackendError(error, 'renderFeedbacks');
+            log('Error', 'Failed to load feedbacks for {UserId}', {
+                UserId: ctx.from!.id,
+                ...getErrorLogProps(normalized)
+            });
+
+            await this.sendOrEdit(
+                ctx,
+                en.messages.feedbackLoadFailed,
+                Markup.inlineKeyboard([
+                    [Markup.button.callback(en.buttons.back, CallbackAction.Home)]
+                ]),
+                preferEdit,
+                'renderFeedbacksError'
+            );
+        }
+    }
+
+    private formatFeedback(feedback: FeedbackDto): string {
+        const createdAt = feedback.date ?? feedback.createdDate;
+        const formattedDate = createdAt
+            ? new Date(createdAt).toLocaleString('en-GB')
+            : en.messages.unknownDate;
+        const status = en.statusLabels[feedback.status] || '❓ Unknown';
+
+        return [
+            `#${feedback.id}`,
+            `Status: ${status}`,
+            `Date: ${formattedDate}`,
+            `Message: ${feedback.comment}`
+        ].join('\n');
+    }
+
+    private mainMenuKeyboard() {
+        return Markup.inlineKeyboard([
+            [Markup.button.callback(en.buttons.createFeedback, CallbackAction.CreateFeedback)],
+            [
+                Markup.button.callback(en.buttons.myFeedbacks, CallbackAction.MyFeedbacks),
+                Markup.button.callback(en.buttons.serviceStatus, CallbackAction.ServiceStatus)
+            ],
+            [Markup.button.callback(en.buttons.help, CallbackAction.Help)]
+        ]);
+    }
+
+    private async sendOrEdit(
+        ctx: BotContext,
+        text: string,
+        keyboard: ReturnType<typeof Markup.inlineKeyboard>,
+        preferEdit: boolean,
+        operation: string
+    ) {
+        const extra = { reply_markup: keyboard.reply_markup };
+
+        if (preferEdit && ctx.callbackQuery?.message) {
+            try {
+                await ctx.editMessageText(text, extra);
+                return;
+            } catch (error) {
+                const normalized = normalizeTelegramError(error, `${operation}.editMessageText`);
+                if (!normalized.expected) {
+                    log('Warning', 'Failed to edit Telegram message for {UserId}', {
+                        UserId: ctx.from!.id,
+                        ...getErrorLogProps(normalized)
+                    });
+                }
+            }
+        }
+
+        await this.safeReply(ctx, text, extra, `${operation}.reply`);
+    }
+
+    private async safeReply(
+        ctx: BotContext,
+        text: string,
+        extra: Parameters<BotContext['reply']>[1],
+        operation: string
+    ) {
+        try {
+            await ctx.reply(text, extra);
+        } catch (error) {
+            const normalized = normalizeTelegramError(error, operation);
+            log('Error', 'Failed to send Telegram reply for {UserId}', {
+                UserId: ctx.from!.id,
+                ...getErrorLogProps(normalized)
+            });
+        }
+    }
+
+    private async handleBackendFailure(
+        ctx: BotContext,
+        error: unknown,
+        operation: string,
+        fallbackMessage: string
+    ) {
+        const normalized = normalizeBackendError(error, operation);
+        log('Error', 'Backend operation failed for {UserId}', {
+            UserId: ctx.from!.id,
+            ...getErrorLogProps(normalized)
+        });
+
+        await this.safeReply(ctx, normalized.userMessage || fallbackMessage, undefined, `${operation}.backendFailureReply`);
+    }
+
+    private async answerCallback(ctx: BotContext) {
+        if (!ctx.callbackQuery) {
+            return;
+        }
+
+        try {
+            await ctx.answerCbQuery();
+        } catch (error) {
+            const normalized = normalizeTelegramError(error, 'answerCallback');
+            if (!normalized.expected) {
+                log('Warning', 'Failed to answer callback query for {UserId}', {
+                    UserId: ctx.from!.id,
+                    ...getErrorLogProps(normalized)
+                });
+            }
         }
     }
 }

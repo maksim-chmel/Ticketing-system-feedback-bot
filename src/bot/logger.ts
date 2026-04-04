@@ -1,13 +1,26 @@
 import axios from 'axios';
 
-const SEQ_URL = 'http://seq:5341/api/events/raw';
+type LogLevel = 'Information' | 'Warning' | 'Error' | 'Fatal';
 
-export const log = (level: string, message: string, props: object = {}) => {
-   
-    console.log(`[${level.toUpperCase()}] ${message}`, props);
+function writeConsole(level: LogLevel, message: string, props: object) {
+    const formatted = `[${level.toUpperCase()}] ${message}`;
+    if (level === 'Error' || level === 'Fatal') {
+        console.error(formatted, props);
+        return;
+    }
 
-   
-    axios.post(SEQ_URL, {
+    console.log(formatted, props);
+}
+
+export const log = (level: LogLevel, message: string, props: object = {}) => {
+    writeConsole(level, message, props);
+
+    const seqUrl = process.env.SEQ_URL?.trim();
+    if (!seqUrl) {
+        return;
+    }
+
+    axios.post(`${seqUrl.replace(/\/$/, '')}/api/events/raw`, {
         Events: [{
             Timestamp: new Date().toISOString(),
             Level: level,
@@ -20,8 +33,7 @@ export const log = (level: string, message: string, props: object = {}) => {
     }, {
         headers: { 'Content-Type': 'application/json' },
         timeout: 2000
-    }).catch(err => {
-       
+    }).catch((err: Error) => {
         console.error('Seq logging failed:', err.message);
     });
 };
