@@ -277,7 +277,7 @@ export class FeedbackHandler {
                 : [
                     en.messages.feedbacksTitle,
                     '',
-                    ...feedbacks.slice(0, 10).map((fb) => this.formatFeedback(fb))
+                    ...feedbacks.slice(0, 10).map((fb: FeedbackDto) => this.formatFeedback(fb))
                 ].join('\n\n');
 
             await this.sendOrEdit(

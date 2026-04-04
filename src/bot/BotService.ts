@@ -77,7 +77,7 @@ export class BotService {
 
     private async sendUpdateNotification() {
         const text = await fs.readFile(this.config.updatesFilePath, 'utf-8').catch(() => 'There are new updates.');
-        const ids = await this.api.getAllUserIds().catch((error) => {
+        const ids = await this.api.getAllUserIds().catch((error: unknown): number[] => {
             const normalized = normalizeBackendError(error, 'sendUpdateNotification.getAllUserIds');
             log('Error', 'Failed to fetch users for update notification', getErrorLogProps(normalized));
             return [];
