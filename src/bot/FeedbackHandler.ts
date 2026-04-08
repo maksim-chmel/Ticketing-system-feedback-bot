@@ -330,7 +330,7 @@ export class FeedbackHandler {
     }
 
     private formatFeedback(feedback: FeedbackDto): string {
-        const createdAt = feedback.date ?? feedback.createdDate;
+        const createdAt = feedback.createdDate;
         const formattedDate = createdAt
             ? new Date(createdAt).toLocaleString('en-GB')
             : en.messages.unknownDate;

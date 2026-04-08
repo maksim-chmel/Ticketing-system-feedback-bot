@@ -5,7 +5,7 @@ services:
     restart: always
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
-      API_BASE_URL: ${API_BASE_URL:-http://adminpanel-back:8080/api/BotFeedback}
+      API_BASE_URL: ${API_BASE_URL:-http://adminpanel-back:8080/api}
       SEQ_URL: ${SEQ_URL:-}
       UPDATES_FILE_PATH: ${UPDATES_FILE_PATH:-./updates.txt}
       BROADCAST_INTERVAL_MS: ${BROADCAST_INTERVAL_MS:-60000}

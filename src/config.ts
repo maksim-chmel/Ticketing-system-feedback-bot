@@ -6,7 +6,7 @@ export interface AppConfig {
     broadcastIntervalMs: number;
 }
 
-const DEFAULT_API_BASE_URL = 'http://adminpanel-back:8080/api/BotFeedback';
+const DEFAULT_API_BASE_URL = 'http://adminpanel-back:8080/api';
 const DEFAULT_UPDATES_FILE_PATH = './updates.txt';
 const DEFAULT_BROADCAST_INTERVAL_MS = 60_000;
 

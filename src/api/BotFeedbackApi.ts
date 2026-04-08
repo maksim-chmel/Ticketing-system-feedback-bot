@@ -19,12 +19,23 @@ export interface FeedbackDto {
     id: number;
     comment: string;
     status: number;
-    date?: string;
     createdDate?: string;
 }
 
 export interface BroadcastMessageDto {
+    id: number;
     message: string;
+    created?: string;
+    isActive?: boolean;
+}
+
+export interface UserDto {
+    userId: number;
+    phone: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    username: string | null;
+    comments: string | null;
 }
 
 export class BotFeedbackApi {
@@ -39,46 +50,59 @@ export class BotFeedbackApi {
 
     async userExists(userId: number): Promise<boolean> {
         return this.execute('userExists', async () => {
-            const { data } = await this.http.get<boolean>(`/exists/${userId}`);
-            return data;
+            try {
+                await this.http.get<UserDto>(`/operator/users/${userId}`);
+                return true;
+            } catch (error) {
+                if (axios.isAxiosError(error) && error.response?.status === 404) {
+                    return false;
+                }
+                throw error;
+            }
         });
     }
 
     async registerUser(payload: RegisterUserPayload): Promise<void> {
         await this.execute('registerUser', async () => {
-            await this.http.post('/register-new-User', {
-                UserId: payload.userId,
-                Phone: payload.phoneNumber,
-                FirstName: payload.firstName,
-                LastName: payload.lastName,
-                Username: payload.username
+            await this.http.put(`/operator/users/${payload.userId}`, {
+                userId: payload.userId,
+                phone: payload.phoneNumber,
+                firstName: payload.firstName || null,
+                lastName: payload.lastName || null,
+                username: payload.username || null,
+                comments: null
             });
         });
     }
 
     async createFeedback(payload: CreateFeedbackPayload): Promise<void> {
         await this.execute('createFeedback', async () => {
-            await this.http.post('/new-feedback', payload);
+            await this.http.post('/operator/feedbacks', {
+                userId: payload.userId,
+                comment: payload.comment,
+                createdDate: new Date().toISOString(),
+                status: 0
+            });
         });
     }
 
     async getUserFeedbacks(userId: number): Promise<FeedbackDto[]> {
         return this.execute('getUserFeedbacks', async () => {
-            const { data } = await this.http.get<FeedbackDto[]>(`/user-feedbacks/${userId}`);
+            const { data } = await this.http.get<FeedbackDto[]>(`/operator/users/${userId}/feedbacks`);
             return data ?? [];
         });
     }
 
     async getAllUserIds(): Promise<number[]> {
         return this.execute('getAllUserIds', async () => {
-            const { data } = await this.http.get<number[]>('/all-users');
+            const { data } = await this.http.get<number[]>('/operator/user-ids');
             return data ?? [];
         });
     }
 
     async getBroadcastMessages(): Promise<BroadcastMessageDto[]> {
         return this.execute('getBroadcastMessages', async () => {
-            const { data } = await this.http.get<BroadcastMessageDto[]>('/broadcast-messages');
+            const { data } = await this.http.post<BroadcastMessageDto[]>('/operator/broadcast-message-pulls');
             return data ?? [];
         });
     }
