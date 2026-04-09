@@ -18,8 +18,9 @@ export interface CreateFeedbackPayload {
 export interface FeedbackDto {
     id: number;
     comment: string;
-    status: number;
+    status: number | string;
     createdDate?: string;
+    date?: string;
 }
 
 export interface BroadcastMessageDto {

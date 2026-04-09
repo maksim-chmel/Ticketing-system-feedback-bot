@@ -330,11 +330,9 @@ export class FeedbackHandler {
     }
 
     private formatFeedback(feedback: FeedbackDto): string {
-        const createdAt = feedback.createdDate;
-        const formattedDate = createdAt
-            ? new Date(createdAt).toLocaleString('en-GB')
-            : en.messages.unknownDate;
-        const status = en.statusLabels[feedback.status] || '❓ Unknown';
+        const createdAt = feedback.createdDate ?? feedback.date;
+        const formattedDate = this.formatDate(createdAt);
+        const status = this.formatStatus(feedback.status);
 
         return [
             `#${feedback.id}`,
@@ -342,6 +340,38 @@ export class FeedbackHandler {
             `Date: ${formattedDate}`,
             `Message: ${feedback.comment}`
         ].join('\n');
+    }
+
+    private formatDate(value?: string): string {
+        if (!value) {
+            return en.messages.unknownDate;
+        }
+
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) {
+            return en.messages.unknownDate;
+        }
+
+        return d.toLocaleString('en-GB');
+    }
+
+    private formatStatus(status: FeedbackDto['status']): string {
+        if (typeof status === 'number') {
+            return en.statusLabels[status] || '❓ Unknown';
+        }
+
+        const normalized = status.trim().toLowerCase();
+        const map: Record<string, string> = {
+            open: '🟢 Open',
+            'in progress': '🟡 In Progress',
+            inprogress: '🟡 In Progress',
+            waiting: '🟠 Waiting for Response',
+            'waiting for response': '🟠 Waiting for Response',
+            closed: '🔵 Closed',
+            rejected: '🔴 Rejected'
+        };
+
+        return map[normalized] ?? '❓ Unknown';
     }
 
     private mainMenuKeyboard() {
