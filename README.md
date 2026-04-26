@@ -1,4 +1,4 @@
-# feedback_bot
+# feedback_bot [![FeedbackBot CI/CD](https://github.com/maksim-chmel/Ticketing-system-feedback-bot/actions/workflows/deploy.yml/badge.svg)](https://github.com/maksim-chmel/Ticketing-system-feedback-bot/actions/workflows/deploy.yml)
 
 Telegram bot for end users of the ticketing platform. The bot registers users by phone number, sends feedback to a backend API, shows the latest feedback statuses, and delivers broadcast messages.
 
