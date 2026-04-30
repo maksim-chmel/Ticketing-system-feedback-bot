@@ -10,7 +10,7 @@ dotenv.config({ quiet: true });
 async function main() {
     try {
         const config = loadConfig();
-        const api = new BotFeedbackApi(config.apiBaseUrl);
+        const api = new BotFeedbackApi(config.apiBaseUrl, config.apiKey);
         const botService = new BotService(config, api);
 
        

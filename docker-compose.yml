@@ -5,6 +5,7 @@ services:
     restart: always
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      API_KEY: ${API_KEY}
       API_BASE_URL: ${API_BASE_URL:-http://adminpanel-back:8080/api}
       SEQ_URL: ${SEQ_URL:-}
       UPDATES_FILE_PATH: ${UPDATES_FILE_PATH:-./updates.txt}

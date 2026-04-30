@@ -42,10 +42,11 @@ export interface UserDto {
 export class BotFeedbackApi {
     private readonly http: AxiosInstance;
 
-    constructor(baseUrl: string) {
+    constructor(baseUrl: string, apiKey: string) {
         this.http = axios.create({
             baseURL: baseUrl,
-            timeout: 10_000
+            timeout: 10_000,
+            headers: { 'X-Api-Key': apiKey }
         });
     }
 

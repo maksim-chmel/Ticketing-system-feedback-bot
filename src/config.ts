@@ -1,6 +1,7 @@
 export interface AppConfig {
     botToken: string;
     apiBaseUrl: string;
+    apiKey: string;
     seqUrl?: string;
     updatesFilePath: string;
     broadcastIntervalMs: number;
@@ -32,6 +33,7 @@ export function loadConfig(): AppConfig {
     return {
         botToken: requireEnv('BOT_TOKEN'),
         apiBaseUrl: process.env.API_BASE_URL?.trim() || DEFAULT_API_BASE_URL,
+        apiKey: requireEnv('API_KEY'),
         seqUrl: process.env.SEQ_URL?.trim() || undefined,
         updatesFilePath: process.env.UPDATES_FILE_PATH?.trim() || DEFAULT_UPDATES_FILE_PATH,
         broadcastIntervalMs: parsePositiveInt(
