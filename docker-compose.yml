@@ -10,11 +10,11 @@ services:
       SEQ_URL: ${SEQ_URL:-}
       UPDATES_FILE_PATH: ${UPDATES_FILE_PATH:-./updates.txt}
       BROADCAST_INTERVAL_MS: ${BROADCAST_INTERVAL_MS:-60000}
+      TZ: Europe/Berlin
+      
     networks:
       - feedback_shared_network
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+    
 
     logging:
       driver: "json-file"
