@@ -18,7 +18,7 @@ export interface CreateFeedbackPayload {
 export interface FeedbackDto {
     id: number;
     comment: string;
-    status: number | string;
+    status: string;
     createdDate?: string;
     date?: string;
 }
@@ -83,7 +83,7 @@ export class BotFeedbackApi {
                 userId: payload.userId,
                 comment: payload.comment,
                 createdDate: new Date().toISOString(),
-                status: 0
+                status: 'Open'
             });
         });
     }

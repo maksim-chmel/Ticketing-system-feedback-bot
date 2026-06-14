@@ -10,13 +10,6 @@ export const en = {
         back: '⬅️ Back',
         refresh: '🔄 Refresh'
     },
-    statusLabels: {
-        0: '🟢 Open',
-        1: '🟡 In Progress',
-        2: '🟠 Waiting for Response',
-        3: '🔵 Closed',
-        4: '🔴 Rejected'
-    } as Record<number, string>,
     messages: {
         registration: (name: string) => [
             `👋 Hello, ${name}!`,

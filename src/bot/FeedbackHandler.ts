@@ -356,10 +356,6 @@ export class FeedbackHandler {
     }
 
     private formatStatus(status: FeedbackDto['status']): string {
-        if (typeof status === 'number') {
-            return en.statusLabels[status] || '❓ Unknown';
-        }
-
         const normalized = status.trim().toLowerCase();
         const map: Record<string, string> = {
             open: '🟢 Open',
