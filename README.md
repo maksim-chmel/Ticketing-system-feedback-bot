@@ -1,56 +1,51 @@
 # feedback_bot [![FeedbackBot CI/CD](https://github.com/maksim-chmel/Ticketing-system-feedback-bot/actions/workflows/deploy.yml/badge.svg)](https://github.com/maksim-chmel/Ticketing-system-feedback-bot/actions/workflows/deploy.yml)
 
-Telegram bot for end users of the ticketing platform. The bot registers users by phone number, sends feedback to a backend API, shows the latest feedback statuses, and delivers broadcast messages.
-
-## Current Architecture
-
-This repository is a Telegram client over HTTP API. It does not connect to PostgreSQL directly.
-
-```text
-Telegram user
-   |
-   v
-feedback_bot (this repo)
-   |
-   v
-AdminPanelBack Operator HTTP API
-   |
-   v
-backend + database
-```
+Telegram bot for the ticketing platform. Serves two audiences from a single process: end users who submit and track feedback, and operators who receive real-time alerts.
 
 ## What The Bot Does
 
-- registers a user from a Telegram contact;
-- shows a callback-driven inline UI inside the chat;
-- creates a new feedback entry through backend API;
+**For users:**
+- registers by phone number (one-time);
+- creates feedback entries via the backend API;
 - shows the last 10 feedbacks with statuses;
 - checks backend API availability;
-- sends startup update notifications;
-- sends broadcast messages to all known users.
+- receives broadcast messages from the admin panel;
+- receives a startup update notification when the bot is redeployed.
 
-## Stack
+**For operators** (requires `OPERATOR_CHAT_ID`):
+- sends an instant alert to the operator chat when any new feedback arrives (via SignalR push — catches submissions from all sources, not just the bot);
+- forwards a copy of every broadcast message to the operator chat.
 
-- Node.js 18
-- TypeScript
-- Telegraf
-- Axios
-- Docker / Docker Compose
+## Architecture
+
+```text
+Telegram user                     Operator chat
+     |                                 ^
+     v                                 |
+feedback_bot  <--SignalR push--  AdminPanelBack
+     |                                 |
+     +--------HTTP API--------------> +
+                                       |
+                                   database
+```
 
 ## Project Structure
 
 ```text
 src/
   api/
-    BotFeedbackApi.ts
+    BotFeedbackApi.ts       HTTP client for the backend API
   bot/
-    BotService.ts
-    FeedbackHandler.ts
-    logger.ts
+    BotService.ts           bot init, broadcast loop, /id command
+    FeedbackHandler.ts      user-facing conversation logic
+    logger.ts               console + Seq structured logging
   errors/
-    AppError.ts
+    AppError.ts             unified error model
   i18n/
-    en.ts
+    en.ts                   all user-facing strings
+  operator/
+    FeedbackAlarmHub.ts     SignalR listener → operator notifications
+    OperatorNotifier.ts     sends messages to the operator chat
   config.ts
   index.ts
 
@@ -60,36 +55,44 @@ tests/
 
 ## Environment Variables
 
-See [.env.example](./.env.example).
-
 Required:
 
-- `BOT_TOKEN`
+| Variable | Description |
+|----------|-------------|
+| `BOT_TOKEN` | Telegram bot token |
+| `API_KEY` | API key used for backend auth: sent as `X-Api-Key` header on REST requests and as `access_token` query param on the SignalR hub connection |
 
-Optional:
+Optional — operator notifications:
 
-- `API_BASE_URL` default: `http://adminpanel-back:8080/api`
-- `SEQ_URL` default: disabled
-- `UPDATES_FILE_PATH` default: `./updates.txt`
-- `BROADCAST_INTERVAL_MS` default: `60000`
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPERATOR_CHAT_ID` | — | Chat ID to send operator alerts. If unset, operator notifications are disabled |
+| `THREAD_ID` | — | Message thread ID inside a supergroup |
+| `HUB_BASE_URL` | `http://adminpanel-back:8080` | Base URL of the SignalR hub |
 
-Notes:
+Optional — general:
 
-- `API_BASE_URL` must point to an Operator HTTP API that implements the endpoints used by this bot (see `src/api/BotFeedbackApi.ts`).
-- `UPDATES_FILE_PATH` is used to store the bot startup/update notifications state. When running in Docker without a bind mount, this file lives inside the container filesystem and will be lost on rebuild.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_BASE_URL` | `http://adminpanel-back:8080/api` | Backend API base URL |
+| `BROADCAST_INTERVAL_MS` | `60000` | How often to poll for broadcast messages (ms) |
+| `SEQ_URL` | — | Seq structured log ingestion URL |
+| `UPDATES_FILE_PATH` | `./updates.txt` | Path to the update notification text file |
+
+To find your `OPERATOR_CHAT_ID` and `THREAD_ID`, send `/id` to the bot from the target chat or thread.
 
 ## Local Run
 
 ```bash
 npm install
-npm run build
-npm start
+npm run dev
 ```
 
-For development:
+Production build:
 
 ```bash
-npm run dev
+npm run build
+npm start
 ```
 
 ## Tests
@@ -98,46 +101,25 @@ npm run dev
 npm test
 ```
 
-The test suite currently covers the main `FeedbackHandler` interaction flow.
-
 ## Docker
 
-Build and start:
-
 ```bash
-docker compose up -d --build feedback-bot
+docker compose up -d --build
 ```
 
 Prerequisites:
 
-- Create the external network used by `docker-compose.yml` (once):
+- External network (create once):
 
 ```bash
 docker network create feedback_shared_network
 ```
 
-- Ensure the backend API container/service (e.g. `adminpanel-back`) is connected to the same `feedback_shared_network`, or override `API_BASE_URL` to a reachable host.
+- The backend service (`adminpanel-back`) must be on the same `feedback_shared_network`, or override `API_BASE_URL` and `HUB_BASE_URL`.
 
-Optional: persist `UPDATES_FILE_PATH` on the host (recommended):
-
-- Add a bind mount in `docker-compose.yml`, for example:
+To persist the update notification file across container rebuilds, add a bind mount in `docker-compose.yml`:
 
 ```yaml
-services:
-  feedback-bot:
-    volumes:
-      - ./updates.txt:/app/updates.txt
+volumes:
+  - ./updates.txt:/app/updates.txt
 ```
-
-and set `UPDATES_FILE_PATH=/app/updates.txt`.
-
-The image uses a multi-stage Docker build:
-
-- build stage installs dev dependencies and compiles TypeScript;
-- runtime stage contains only production dependencies and compiled output.
-
-## Notes
-
-- The bot UI texts are centralized in [src/i18n/en.ts](./src/i18n/en.ts).
-- Backend API and Telegram API errors are normalized in [src/errors/AppError.ts](./src/errors/AppError.ts).
-- Generated files such as `dist/` and local `node_modules/` should not be committed.

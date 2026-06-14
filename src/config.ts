@@ -1,13 +1,17 @@
 export interface AppConfig {
     botToken: string;
     apiBaseUrl: string;
+    hubBaseUrl: string;
     apiKey: string;
     seqUrl?: string;
     updatesFilePath: string;
     broadcastIntervalMs: number;
+    operatorChatId?: number;
+    operatorThreadId?: number;
 }
 
 const DEFAULT_API_BASE_URL = 'http://adminpanel-back:8080/api';
+const DEFAULT_HUB_BASE_URL = 'http://adminpanel-back:8080';
 const DEFAULT_UPDATES_FILE_PATH = './updates.txt';
 const DEFAULT_BROADCAST_INTERVAL_MS = 60_000;
 
@@ -29,16 +33,25 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseOptionalInt(value: string | undefined): number | undefined {
+    if (!value?.trim()) return undefined;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export function loadConfig(): AppConfig {
     return {
         botToken: requireEnv('BOT_TOKEN'),
         apiBaseUrl: process.env.API_BASE_URL?.trim() || DEFAULT_API_BASE_URL,
+        hubBaseUrl: process.env.HUB_BASE_URL?.trim() || DEFAULT_HUB_BASE_URL,
         apiKey: requireEnv('API_KEY'),
         seqUrl: process.env.SEQ_URL?.trim() || undefined,
         updatesFilePath: process.env.UPDATES_FILE_PATH?.trim() || DEFAULT_UPDATES_FILE_PATH,
         broadcastIntervalMs: parsePositiveInt(
             process.env.BROADCAST_INTERVAL_MS,
             DEFAULT_BROADCAST_INTERVAL_MS
-        )
+        ),
+        operatorChatId: parseOptionalInt(process.env.OPERATOR_CHAT_ID),
+        operatorThreadId: parseOptionalInt(process.env.THREAD_ID)
     };
 }

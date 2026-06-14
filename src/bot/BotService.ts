@@ -6,10 +6,13 @@ import { AppConfig } from '../config';
 import { BotFeedbackApi, BroadcastMessageDto } from '../api/BotFeedbackApi';
 import { getErrorLogProps, normalizeBackendError, normalizeTelegramError } from '../errors/AppError';
 import { en } from '../i18n/en';
+import { OperatorNotifier } from '../operator/OperatorNotifier';
+import { startFeedbackAlarmHub } from '../operator/FeedbackAlarmHub';
 
 export class BotService {
     private readonly bot: Telegraf;
     private readonly feedbackHandler: FeedbackHandler;
+    private readonly operatorNotifier?: OperatorNotifier;
     private broadcastTimer?: NodeJS.Timeout;
 
     constructor(
@@ -18,9 +21,13 @@ export class BotService {
     ) {
         this.bot = new Telegraf(config.botToken);
         this.feedbackHandler = new FeedbackHandler(api);
+
+        if (config.operatorChatId !== undefined) {
+            this.operatorNotifier = new OperatorNotifier(this.bot, config.operatorChatId, config.operatorThreadId);
+        }
     }
 
-    async broadcastLoop() {
+    private async broadcastLoop() {
         try {
             log('Information', 'Broadcast poll started');
 
@@ -68,6 +75,15 @@ export class BotService {
 
         this.bot.start(ctx => this.feedbackHandler.handleStart(ctx));
         this.bot.command('help', ctx => this.feedbackHandler.handleHelp(ctx));
+        this.bot.command('id', async ctx => {
+            const chatId = ctx.chat.id;
+            const userId = ctx.from?.id;
+            const threadId = ctx.message?.message_thread_id;
+            await ctx.reply(
+                `Chat ID: ${chatId}\nUser ID: ${userId}` +
+                (threadId ? `\nThread ID: ${threadId}` : '')
+            );
+        });
         this.bot.action(/.+/, ctx => this.feedbackHandler.handleAction(ctx));
         this.bot.on('contact', ctx => this.feedbackHandler.handleContact(ctx));
         this.bot.on('text', (ctx, next) => {
@@ -84,17 +100,22 @@ export class BotService {
             IntervalMs: this.config.broadcastIntervalMs
         });
 
-        this.broadcastLoop().catch(error => {
-            const normalized = normalizeBackendError(error, 'initialBroadcastLoop');
-            log('Error', 'Initial broadcast loop failed', getErrorLogProps(normalized));
-        });
+        void this.broadcastLoop();
 
         this.broadcastTimer = setInterval(() => {
-            this.broadcastLoop().catch(error => {
-                const normalized = normalizeBackendError(error, 'scheduledBroadcastLoop');
-                log('Error', 'Scheduled broadcast loop failed', getErrorLogProps(normalized));
-            });
+            void this.broadcastLoop();
         }, this.config.broadcastIntervalMs);
+
+        if (this.operatorNotifier) {
+            const hubUrl = `${this.config.hubBaseUrl}/hubs/feedback?access_token=${this.config.apiKey}`;
+            startFeedbackAlarmHub(hubUrl, this.operatorNotifier).catch(error => {
+                log('Error', 'Failed to start feedback alarm hub', {
+                    Error: error instanceof Error ? error.message : String(error)
+                });
+            });
+        } else {
+            log('Information', 'Operator notifications disabled (OPERATOR_CHAT_ID not set)');
+        }
 
         log('Information', 'Launching Telegram bot');
         await this.bot.launch();
@@ -159,6 +180,8 @@ export class BotService {
             DeliveredCount: deliveredCount,
             Preview: message.message.slice(0, 80)
         });
+
+        await this.operatorNotifier?.send(`📢 Broadcast\n${message.message}`);
     }
 
     private shutdown(signal: 'SIGINT' | 'SIGTERM') {
