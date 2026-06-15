@@ -1,18 +1,5 @@
 FROM node:18-slim AS build
 
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    build-essential \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY package*.json ./
@@ -26,15 +13,6 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 FROM node:18-slim AS runtime
-
-RUN apt-get update && apt-get install -y \
-    libcairo2 \
-    libpango-1.0-0 \
-    libjpeg62-turbo \
-    libgif7 \
-    librsvg2-2 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
